@@ -52,6 +52,7 @@ jobs:
 
       # 10.
       - name: Run all tests
+        working-directory: ci_cd_example
         run: |
           flutter test
 
