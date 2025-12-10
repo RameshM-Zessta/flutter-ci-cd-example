@@ -58,16 +58,19 @@ jobs:
 
       # 11.
       - name: Build APK
+        working-directory: ci_cd_example
         run: |
           flutter build apk
 
       # 12.
       - name: Flutter build ipa
+        working-directory: ci_cd_example
         run: |
           flutter build ipa --no-codesign
 
       # 13.t
       - name: Compress Archives and IPAs
+        working-directory: ci_cd_example
         run: |
           cd build
           tar -czf ios_build.tar.gz ios
