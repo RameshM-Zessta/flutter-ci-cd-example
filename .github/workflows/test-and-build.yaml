@@ -78,3 +78,21 @@ jobs:
             path: |
              build/app/outputs/flutter-apk/app-release.apk
              build/ios_build.tar.gz
+      # 15. Email Notification
+      - name: Send Email
+        if: always()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject: "Flutter CI/CD: ${{ job.status }}"
+          to: ${{ secrets.EMAIL_TO }}
+          from: GitHub Actions <${{ secrets.EMAIL_USERNAME }}>
+          body: |
+            CI/CD Build Status: ${{ job.status }}
+            Branch: ${{ github.ref }}
+            Commit: ${{ github.sha }}
+            Triggered by: ${{ github.actor }}
