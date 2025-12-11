@@ -5,11 +5,11 @@ name: Test & Build
 on:
   pull_request:
     branches:
-      - main
+      - master
       - dev
   push:
     branches:
-      - main
+      - master
       - dev
 
 # 3.
@@ -35,13 +35,11 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.29.3'
           channel: 'stable'
-          architecture: x64
+          flutter-version: '3.22.2'
 
       # 8.
       - name: Get Flutter packages
-        working-directory: ci_cd_example
         run: |
           flutter pub get
 
@@ -52,34 +50,30 @@ jobs:
 
       # 10.
       - name: Run all tests
-        working-directory: ci_cd_example
         run: |
           flutter test
 
       # 11.
       - name: Build APK
-        working-directory: ci_cd_example
         run: |
           flutter build apk
 
       # 12.
       - name: Flutter build ipa
-        working-directory: ci_cd_example
         run: |
           flutter build ipa --no-codesign
 
       # 13.t
       - name: Compress Archives and IPAs
-        working-directory: ci_cd_example
         run: |
           cd build
           tar -czf ios_build.tar.gz ios
 
       # 14.
       - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
-            name: Releases
-            path: |
-             build/app/outputs/flutter-apk/app-release.apk
-             build/ios_build.tar.gz
+          name: Releases
+          path: |
+            build/app/outputs/flutter-apk/app-release.apk
+            build/ios_build.tar.gz
