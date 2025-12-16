@@ -78,7 +78,6 @@ jobs:
         if: github.event_name == 'push' 
         run: |
           mkdir -p ~/certs
-          # Removed the incorrect 'if: github.event_name == 'push'' line here
           echo "${{ secrets.CICD_IOS_P12_BASE64 }}" | base64 --decode > ~/certs/dist.p12
 
           security create-keychain -p "" build.keychain
