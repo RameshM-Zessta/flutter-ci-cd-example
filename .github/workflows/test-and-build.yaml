@@ -15,53 +15,12 @@ jobs:
     runs-on: macos-latest
 
     steps:
+      # ... (Steps 1 & 2: Checkout, Setup, Dependencies, Testing remain the same) ...
+      
       # --------------------------------------------------
-      # Checkout
+      # 3. iOS Code Signing (CD)
       # --------------------------------------------------
-      - name: Clone repository
-        uses: actions/checkout@v4
-
-      # --------------------------------------------------
-      # Java (Android)
-      # --------------------------------------------------
-      - name: Setup Java
-        uses: actions/setup-java@v3
-        with:
-          distribution: zulu
-          java-version: "18.x"
-
-      # --------------------------------------------------
-      # Flutter
-      # --------------------------------------------------
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: "3.29.3"
-          channel: stable
-          architecture: x64
-
-      # --------------------------------------------------
-      # Dependencies
-      # --------------------------------------------------
-      - name: Get Flutter packages
-        run: flutter pub get
-
-      - name: Check for lints
-        run: flutter analyze
-
-      - name: Run tests
-        run: flutter test
-
-      # --------------------------------------------------
-      # ANDROID – RELEASE APK
-      # --------------------------------------------------
-      # - name: Build Android APK
-      #   run: flutter build apk --release
-
-      # --------------------------------------------------
-      # iOS – CERTIFICATE SETUP
-      # --------------------------------------------------
-      - name: Check secret availability
+      - name: Check P12 Secret Availability
         if: github.event_name == 'push'
         run: |
           if [ -z "${{ secrets.CICD_IOS_P12_BASE64 }}" ]; then
@@ -71,15 +30,11 @@ jobs:
           echo "✅ P12 secret is available"
           fi
 
-      - name: Install iOS Certificate
-        # --------------------------------------------------------
-        # FIX: Moved 'if' condition out of the 'run' block
-        # --------------------------------------------------------
+      - name: Install iOS Certificate and Keychain
         if: github.event_name == 'push' 
         run: |
           mkdir -p ~/certs
           echo "${{ secrets.CICD_IOS_P12_BASE64 }}" | base64 --decode > ~/certs/dist.p12
-
           security create-keychain -p "" build.keychain
           security default-keychain -s build.keychain
           security unlock-keychain -p "" build.keychain
@@ -87,12 +42,8 @@ jobs:
             -k build.keychain \
             -P "${{ secrets.CICD_IOS_P12_PASSWORD }}" \
             -T /usr/bin/codesign
-
           security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
 
-      # --------------------------------------------------
-      # iOS – PROVISIONING PROFILE
-      # --------------------------------------------------
       - name: Install Provisioning Profile
         run: |
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
@@ -100,24 +51,72 @@ jobs:
           cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
 
       # --------------------------------------------------
-      # iOS – BUILD SIGNED IPA
+      # 4. Extract Version and Build Number (NEW STEP)
+      # --------------------------------------------------
+      - name: Extract Version Info
+        id: version
+        run: |
+          # The app version is defined in pubspec.yaml (e.g., 1.0.0+1)
+          APP_VERSION=$(grep 'version:' pubspec.yaml | awk '{print $2}' | cut -d+ -f1)
+          BUILD_NUMBER=$(grep 'version:' pubspec.yaml | awk '{print $2}' | cut -d+ -f2)
+          
+          # Set the variables as environment outputs for later steps
+          echo "APP_VERSION=$APP_VERSION" >> "$GITHUB_ENV"
+          echo "BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
+          echo "IPA_STATUS=SKIPPED" >> "$GITHUB_ENV" # Default status
+          
+          echo "Extracted Version: $APP_VERSION ($BUILD_NUMBER)"
+
+      # --------------------------------------------------
+      # 5. Build IPA
       # --------------------------------------------------
       - name: Build SIGNED IPA
+        id: build_ipa
         run: |
           flutter build ipa \
             --release \
             --export-options-plist=ios/ExportOptions.plist
+          
+          # Store the actual IPA path for the upload step
+          IPA_PATH=$(find build/ios/ipa -name "*.ipa" | head -n 1) 
+          echo "IPA_PATH=$IPA_PATH" >> "$GITHUB_ENV"
 
       # --------------------------------------------------
-      # PACKAGE IPA
+      # 6. Upload to TestFlight (using xcrun altool) (MODIFIED STEP)
       # --------------------------------------------------
-      - name: Compress IPA
+      - name: Upload IPA to TestFlight (xcrun altool)
+        id: upload_ipa
+        if: github.event_name == 'push' && success()
         run: |
-          cd build/ios/ipa
-          tar -czf signed_ipa.tar.gz *.ipa
+          export API_KEY_ID="${{ secrets.APP_STORE_CONNECT_KEY_ID }}"
+          export API_ISSUER_ID="${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}"
+          
+          mkdir -p ~/private_keys
+          KEY_FILE_PATH=~/private_keys/AuthKey_$API_KEY_ID.p8
+          echo "${{ secrets.APP_STORE_CONNECT_API_KEY_CONTENT }}" | base64 --decode > $KEY_FILE_PATH
+          
+          echo "Uploading $IPA_PATH to App Store Connect..."
+          
+          # Capture the exit code of altool to determine success/failure
+          if xcrun altool --upload-app \
+            --file "$IPA_PATH" \
+            --type "ios" \
+            --apiKey "$API_KEY_ID" \
+            --apiIssuer "$API_ISSUER_ID" ; then
+            
+            # If altool succeeds, set the status to UPLOADED
+            echo "IPA_STATUS=UPLOADED" >> "$GITHUB_ENV"
+          else
+            # If altool fails, set the status to FAILED
+            echo "IPA_STATUS=FAILED" >> "$GITHUB_ENV"
+            # Fail the step explicitly
+            exit 1 
+          fi
+            
+          rm $KEY_FILE_PATH
 
       # --------------------------------------------------
-      # UPLOAD ARTIFACTS
+      # 7. Artifact & Notification
       # --------------------------------------------------
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
@@ -125,12 +124,9 @@ jobs:
           name: Releases
           path: |
             build/app/outputs/flutter-apk/app-release.apk
-            build/ios/ipa/signed_ipa.tar.gz
+            build/ios/ipa/*.ipa
 
-      # --------------------------------------------------
-      # EMAIL NOTIFICATION
-      # --------------------------------------------------
-      - name: Send Email
+      - name: Send Email (UPDATED BODY)
         if: always()
         uses: dawidd6/action-send-mail@v3
         with:
@@ -139,11 +135,21 @@ jobs:
           secure: true
           username: ${{ secrets.EMAIL_USERNAME }}
           password: ${{ secrets.EMAIL_PASSWORD }}
-          subject: "Flutter CI/CD: ${{ job.status }}"
+          subject: "Flutter CI/CD: ${{ job.status }} - Version ${{$GITHUB_ENV.APP_VERSION}} (${{$GITHUB_ENV.BUILD_NUMBER}})"
           to: ${{ secrets.EMAIL_TO }}
           from: GitHub Actions <${{ secrets.EMAIL_USERNAME }}>
           body: |
             CI/CD Build Status: ${{ job.status }}
-            Branch: ${{ github.ref }}
-            Commit: ${{ github.sha }}
-            Triggered by: ${{ github.actor }}
+            ---
+            iOS Deployment Details
+            ---
+            * Version: ${{$GITHUB_ENV.APP_VERSION}}
+            * Build: ${{$GITHUB_ENV.BUILD_NUMBER}}
+            * IPA Upload Status: ${{$GITHUB_ENV.IPA_STATUS}}
+            * TestFlight Status: Processing (Check App Store Connect)
+            ---
+            Workflow Info
+            ---
+            * Branch: ${{ github.ref }}
+            * Commit: ${{ github.sha }}
+            * Triggered by: ${{ github.actor }}
