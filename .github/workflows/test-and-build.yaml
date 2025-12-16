@@ -15,8 +15,37 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      # ... (Steps 1 & 2: Checkout, Setup, Dependencies, Testing remain the same) ...
-      
+      # --------------------------------------------------
+      # 1. Checkout & Setup
+      # --------------------------------------------------
+      - name: Clone repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v3
+        with:
+          distribution: zulu
+          java-version: "18.x"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.29.3"
+          channel: stable
+          architecture: x64
+
+      # --------------------------------------------------
+      # 2. Dependencies & Testing (CI)
+      # --------------------------------------------------
+      - name: Get Flutter packages
+        run: flutter pub get
+
+      - name: Check for lints
+        run: flutter analyze
+
+      - name: Run tests
+        run: flutter test
+
       # --------------------------------------------------
       # 3. iOS Code Signing (CD)
       # --------------------------------------------------
@@ -33,15 +62,22 @@ jobs:
       - name: Install iOS Certificate and Keychain
         if: github.event_name == 'push' 
         run: |
+          # 1. Decode P12 and store it
           mkdir -p ~/certs
           echo "${{ secrets.CICD_IOS_P12_BASE64 }}" | base64 --decode > ~/certs/dist.p12
+
+          # 2. Create, unlock, and set default keychain
           security create-keychain -p "" build.keychain
           security default-keychain -s build.keychain
           security unlock-keychain -p "" build.keychain
+          
+          # 3. Import P12 into the keychain
           security import ~/certs/dist.p12 \
             -k build.keychain \
             -P "${{ secrets.CICD_IOS_P12_PASSWORD }}" \
             -T /usr/bin/codesign
+
+          # 4. Set partition list to ensure keychain access during signing
           security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
 
       - name: Install Provisioning Profile
@@ -51,16 +87,16 @@ jobs:
           cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
 
       # --------------------------------------------------
-      # 4. Extract Version and Build Number (NEW STEP)
+      # 4. Extract Version and Build Number
       # --------------------------------------------------
       - name: Extract Version Info
         id: version
         run: |
-          # The app version is defined in pubspec.yaml (e.g., 1.0.0+1)
+          # Read version and build number from pubspec.yaml
           APP_VERSION=$(grep 'version:' pubspec.yaml | awk '{print $2}' | cut -d+ -f1)
           BUILD_NUMBER=$(grep 'version:' pubspec.yaml | awk '{print $2}' | cut -d+ -f2)
           
-          # Set the variables as environment outputs for later steps
+          # Set the variables as environment variables
           echo "APP_VERSION=$APP_VERSION" >> "$GITHUB_ENV"
           echo "BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
           echo "IPA_STATUS=SKIPPED" >> "$GITHUB_ENV" # Default status
@@ -82,7 +118,7 @@ jobs:
           echo "IPA_PATH=$IPA_PATH" >> "$GITHUB_ENV"
 
       # --------------------------------------------------
-      # 6. Upload to TestFlight (using xcrun altool) (MODIFIED STEP)
+      # 6. Upload to TestFlight (using xcrun altool)
       # --------------------------------------------------
       - name: Upload IPA to TestFlight (xcrun altool)
         id: upload_ipa
@@ -93,23 +129,23 @@ jobs:
           
           mkdir -p ~/private_keys
           KEY_FILE_PATH=~/private_keys/AuthKey_$API_KEY_ID.p8
+          # Decode the P8 secret content into a temporary file
           echo "${{ secrets.APP_STORE_CONNECT_API_KEY_CONTENT }}" | base64 --decode > $KEY_FILE_PATH
           
           echo "Uploading $IPA_PATH to App Store Connect..."
           
-          # Capture the exit code of altool to determine success/failure
+          # Execute altool and check the result
           if xcrun altool --upload-app \
             --file "$IPA_PATH" \
             --type "ios" \
             --apiKey "$API_KEY_ID" \
             --apiIssuer "$API_ISSUER_ID" ; then
             
-            # If altool succeeds, set the status to UPLOADED
+            # If successful
             echo "IPA_STATUS=UPLOADED" >> "$GITHUB_ENV"
           else
-            # If altool fails, set the status to FAILED
+            # If failed
             echo "IPA_STATUS=FAILED" >> "$GITHUB_ENV"
-            # Fail the step explicitly
             exit 1 
           fi
             
@@ -126,7 +162,7 @@ jobs:
             build/app/outputs/flutter-apk/app-release.apk
             build/ios/ipa/*.ipa
 
-      - name: Send Email (UPDATED BODY)
+      - name: Send Email
         if: always()
         uses: dawidd6/action-send-mail@v3
         with:
@@ -135,7 +171,8 @@ jobs:
           secure: true
           username: ${{ secrets.EMAIL_USERNAME }}
           password: ${{ secrets.EMAIL_PASSWORD }}
-          subject: "Flutter CI/CD: ${{ job.status }} - Version ${{$GITHUB_ENV.APP_VERSION}} (${{$GITHUB_ENV.BUILD_NUMBER}})"
+          # FIX: Use ${{ env.VARIABLE }} syntax for external action parameters
+          subject: "Flutter CI/CD: ${{ job.status }} - Version ${{ env.APP_VERSION }} (${{ env.BUILD_NUMBER }})"
           to: ${{ secrets.EMAIL_TO }}
           from: GitHub Actions <${{ secrets.EMAIL_USERNAME }}>
           body: |
@@ -143,9 +180,9 @@ jobs:
             ---
             iOS Deployment Details
             ---
-            * Version: ${{$GITHUB_ENV.APP_VERSION}}
-            * Build: ${{$GITHUB_ENV.BUILD_NUMBER}}
-            * IPA Upload Status: ${{$GITHUB_ENV.IPA_STATUS}}
+            * Version: ${{ env.APP_VERSION }}
+            * Build: ${{ env.BUILD_NUMBER }}
+            * IPA Upload Status: ${{ env.IPA_STATUS }}
             * TestFlight Status: Processing (Check App Store Connect)
             ---
             Workflow Info
