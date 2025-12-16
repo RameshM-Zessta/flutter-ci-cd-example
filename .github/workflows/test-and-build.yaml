@@ -1,7 +1,5 @@
-# 1.
 name: Test & Build
 
-# 2.
 on:
   pull_request:
     branches:
@@ -12,73 +10,112 @@ on:
       - main
       - dev
 
-# 3.
 jobs:
   main:
     runs-on: macos-latest
 
-    # 4.
     steps:
-
-      # 5.
+      # --------------------------------------------------
+      # Checkout
+      # --------------------------------------------------
       - name: Clone repository
         uses: actions/checkout@v4
 
-      # 6.
-      - name: Setup java
+      # --------------------------------------------------
+      # Java (Android)
+      # --------------------------------------------------
+      - name: Setup Java
         uses: actions/setup-java@v3
         with:
-          distribution: 'zulu'
+          distribution: zulu
           java-version: "18.x"
 
-      # 7.
+      # --------------------------------------------------
+      # Flutter
+      # --------------------------------------------------
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.29.3'
-          channel: 'stable'
+          flutter-version: "3.29.3"
+          channel: stable
           architecture: x64
 
-      # 8.
+      # --------------------------------------------------
+      # Dependencies
+      # --------------------------------------------------
       - name: Get Flutter packages
-        run: |
-          flutter pub get
+        run: flutter pub get
 
-      # 9.
       - name: Check for lints
-        run: |
-          flutter analyze
+        run: flutter analyze
 
-      # 10.
-      - name: Run all tests
-        run: |
-          flutter test
+      - name: Run tests
+        run: flutter test
 
-      # 11.
-      - name: Build APK
-        run: |
-          flutter build apk
+      # --------------------------------------------------
+      # ANDROID – RELEASE APK
+      # --------------------------------------------------
+      - name: Build Android APK
+        run: flutter build apk --release
 
-      # 12.
-      - name: Flutter build ipa
+      # --------------------------------------------------
+      # iOS – CERTIFICATE SETUP
+      # --------------------------------------------------
+      - name: Install iOS Certificate
         run: |
-          flutter build ipa --no-codesign
+          mkdir -p ~/certs
+          echo "${{ secrets.CICD_IOS_P12_BASE64 }}" | base64 --decode > ~/certs/dist.p12
 
-      # 13.t
-      - name: Compress Archives and IPAs
+          security create-keychain -p "" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "" build.keychain
+          security import ~/certs/dist.p12 \
+            -k build.keychain \
+            -P "${{ secrets.CICD_IOS_P12_PASSWORD }}" \
+            -T /usr/bin/codesign
+
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
+
+      # --------------------------------------------------
+      # iOS – PROVISIONING PROFILE
+      # --------------------------------------------------
+      - name: Install Provisioning Profile
         run: |
-          cd build
-          tar -czf ios_build.tar.gz ios
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          echo "${{ secrets.CICD_IOS_PROVISION_BASE64 }}" | base64 --decode > profile.mobileprovision
+          cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
 
-      # 14.
+      # --------------------------------------------------
+      # iOS – BUILD SIGNED IPA
+      # --------------------------------------------------
+      - name: Build SIGNED IPA
+        run: |
+          flutter build ipa \
+            --release \
+            --export-options-plist=ios/ExportOptions.plist
+
+      # --------------------------------------------------
+      # PACKAGE IPA
+      # --------------------------------------------------
+      - name: Compress IPA
+        run: |
+          cd build/ios/ipa
+          tar -czf signed_ipa.tar.gz *.ipa
+
+      # --------------------------------------------------
+      # UPLOAD ARTIFACTS
+      # --------------------------------------------------
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-            name: Releases
-            path: |
-             build/app/outputs/flutter-apk/app-release.apk
-             build/ios_build.tar.gz
-      # 15. Email Notification
+          name: Releases
+          path: |
+            build/app/outputs/flutter-apk/app-release.apk
+            build/ios/ipa/signed_ipa.tar.gz
+
+      # --------------------------------------------------
+      # EMAIL NOTIFICATION
+      # --------------------------------------------------
       - name: Send Email
         if: always()
         uses: dawidd6/action-send-mail@v3
