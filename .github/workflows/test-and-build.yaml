@@ -55,8 +55,8 @@ jobs:
       # --------------------------------------------------
       # ANDROID – RELEASE APK
       # --------------------------------------------------
-      - name: Build Android APK
-        run: flutter build apk --release
+      # - name: Build Android APK
+      #   run: flutter build apk --release
 
       # --------------------------------------------------
       # iOS – CERTIFICATE SETUP
