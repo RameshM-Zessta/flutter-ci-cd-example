@@ -63,7 +63,6 @@ jobs:
       # --------------------------------------------------
       - name: Check secret availability
         if: github.event_name == 'push'
-
         run: |
           if [ -z "${{ secrets.CICD_IOS_P12_BASE64 }}" ]; then
            echo "❌ P12 secret is empty"
@@ -73,9 +72,13 @@ jobs:
           fi
 
       - name: Install iOS Certificate
+        # --------------------------------------------------------
+        # FIX: Moved 'if' condition out of the 'run' block
+        # --------------------------------------------------------
+        if: github.event_name == 'push' 
         run: |
           mkdir -p ~/certs
-          if: github.event_name == 'push'
+          # Removed the incorrect 'if: github.event_name == 'push'' line here
           echo "${{ secrets.CICD_IOS_P12_BASE64 }}" | base64 --decode > ~/certs/dist.p12
 
           security create-keychain -p "" build.keychain
