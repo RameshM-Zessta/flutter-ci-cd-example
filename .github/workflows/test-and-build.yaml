@@ -1,3 +1,6 @@
+# --------------------------------------------------
+# Test & Build Workflow with Auto Increment
+# --------------------------------------------------
 name: Test & Build
 
 on:
@@ -47,7 +50,42 @@ jobs:
         run: flutter test
 
       # --------------------------------------------------
-      # 3. iOS Code Signing (CD)
+      # 3. Auto-increment Version & Build Number
+      # --------------------------------------------------
+      - name: Auto-increment version & build
+        id: increment_version
+        run: |
+          # Read current version from pubspec.yaml
+          CURRENT_VERSION=$(grep 'version:' pubspec.yaml | awk '{print $2}')
+          CURRENT_BUILD=$(echo $CURRENT_VERSION | cut -d+ -f2)
+          CURRENT_VER=$(echo $CURRENT_VERSION | cut -d+ -f1)
+
+          # Increment build number by 1
+          NEW_BUILD=$((CURRENT_BUILD + 1))
+
+          # Optionally, auto increment minor version every 100 builds
+          MAJOR=$(echo $CURRENT_VER | cut -d. -f1)
+          MINOR=$(echo $CURRENT_VER | cut -d. -f2)
+          PATCH=$(echo $CURRENT_VER | cut -d. -f3)
+
+          if [ $((NEW_BUILD % 100)) -eq 0 ]; then
+            MINOR=$((MINOR + 1))
+            PATCH=0
+          fi
+
+          NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}+${NEW_BUILD}"
+
+          # Update pubspec.yaml
+          sed -i '' "s/^version:.*/version: $NEW_VERSION/" pubspec.yaml
+
+          echo "APP_VERSION=$NEW_VERSION" >> "$GITHUB_ENV"
+          echo "BUILD_NUMBER=$NEW_BUILD" >> "$GITHUB_ENV"
+          echo "IPA_STATUS=SKIPPED" >> "$GITHUB_ENV"
+
+          echo "Updated version to $NEW_VERSION (build $NEW_BUILD)"
+
+      # --------------------------------------------------
+      # 4. iOS Code Signing (CD)
       # --------------------------------------------------
       - name: Check P12 Secret Availability
         if: github.event_name == 'push'
@@ -83,21 +121,6 @@ jobs:
           cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
 
       # --------------------------------------------------
-      # 4. Extract Version and Build Number
-      # --------------------------------------------------
-      - name: Extract Version Info
-        id: version
-        run: |
-          APP_VERSION=$(grep 'version:' pubspec.yaml | awk '{print $2}' | cut -d+ -f1)
-          BUILD_NUMBER=$(grep 'version:' pubspec.yaml | awk '{print $2}' | cut -d+ -f2)
-
-          echo "APP_VERSION=$APP_VERSION" >> "$GITHUB_ENV"
-          echo "BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
-          echo "IPA_STATUS=SKIPPED" >> "$GITHUB_ENV"
-
-          echo "Extracted Version: $APP_VERSION ($BUILD_NUMBER)"
-
-      # --------------------------------------------------
       # 5. Build IPA
       # --------------------------------------------------
       - name: Build SIGNED IPA
@@ -111,7 +134,7 @@ jobs:
           echo "IPA_PATH=$IPA_PATH" >> "$GITHUB_ENV"
 
       # --------------------------------------------------
-      # 6. Prepare API Key for App Store Connect
+      # 6. Setup App Store Connect API Key
       # --------------------------------------------------
       - name: Setup App Store Connect API Key
         if: github.event_name == 'push'
@@ -123,7 +146,7 @@ jobs:
           head -n 2 $KEY_FILE_PATH
 
       # --------------------------------------------------
-      # 7. Upload to TestFlight (xcrun altool)
+      # 7. Upload to TestFlight
       # --------------------------------------------------
       - name: Upload IPA to TestFlight
         if: github.event_name == 'push' && success()
