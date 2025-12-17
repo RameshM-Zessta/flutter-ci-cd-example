@@ -118,7 +118,15 @@ jobs:
           echo "IPA_PATH=$IPA_PATH" >> "$GITHUB_ENV"
 
       # --------------------------------------------------
-      # 6. Upload to TestFlight (using xcrun altool)
+      # 6. Verify API key file
+      # --------------------------------------------------
+
+      - name: Verify API key file
+        run: |
+         head -n 2 ~/private_keys/AuthKey_${{ secrets.APP_STORE_CONNECT_KEY_ID }}.p8
+
+      # --------------------------------------------------
+      # 6A. Upload to TestFlight (using xcrun altool)
       # --------------------------------------------------
       - name: Upload IPA to TestFlight (xcrun altool)
         id: upload_ipa
