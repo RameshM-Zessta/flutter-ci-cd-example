@@ -84,94 +84,131 @@ jobs:
 
           echo "Updated version to $NEW_VERSION (build $NEW_BUILD)"
 
-      # --------------------------------------------------
-      # 4. iOS Code Signing (CD)
-      # --------------------------------------------------
-      - name: Check P12 Secret Availability
-        if: github.event_name == 'push'
-        run: |
-          if [ -z "${{ secrets.CICD_IOS_P12_BASE64 }}" ]; then
-            echo "❌ P12 secret is empty"
-            exit 1
-          else
-            echo "✅ P12 secret is available"
-          fi
+      # # --------------------------------------------------
+      # # 4. iOS Code Signing (CD)
+      # # --------------------------------------------------
+      # - name: Check P12 Secret Availability
+      #   if: github.event_name == 'push'
+      #   run: |
+      #     if [ -z "${{ secrets.CICD_IOS_P12_BASE64 }}" ]; then
+      #       echo "❌ P12 secret is empty"
+      #       exit 1
+      #     else
+      #       echo "✅ P12 secret is available"
+      #     fi
 
-      - name: Install iOS Certificate and Keychain
-        if: github.event_name == 'push'
-        run: |
-          mkdir -p ~/certs
-          echo "${{ secrets.CICD_IOS_P12_BASE64 }}" | base64 --decode > ~/certs/dist.p12
+      # - name: Install iOS Certificate and Keychain
+      #   if: github.event_name == 'push'
+      #   run: |
+      #     mkdir -p ~/certs
+      #     echo "${{ secrets.CICD_IOS_P12_BASE64 }}" | base64 --decode > ~/certs/dist.p12
 
-          security create-keychain -p "" build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p "" build.keychain
+      #     security create-keychain -p "" build.keychain
+      #     security default-keychain -s build.keychain
+      #     security unlock-keychain -p "" build.keychain
           
-          security import ~/certs/dist.p12 \
-            -k build.keychain \
-            -P "${{ secrets.CICD_IOS_P12_PASSWORD }}" \
-            -T /usr/bin/codesign
+      #     security import ~/certs/dist.p12 \
+      #       -k build.keychain \
+      #       -P "${{ secrets.CICD_IOS_P12_PASSWORD }}" \
+      #       -T /usr/bin/codesign
 
-          security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
+      #     security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
 
-      - name: Install Provisioning Profile
-        run: |
-          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-          echo "${{ secrets.CICD_IOS_PROVISION_BASE64 }}" | base64 --decode > profile.mobileprovision
-          cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
+      # - name: Install Provisioning Profile
+      #   run: |
+      #     mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+      #     echo "${{ secrets.CICD_IOS_PROVISION_BASE64 }}" | base64 --decode > profile.mobileprovision
+      #     cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
 
+      # # --------------------------------------------------
+      # # 5. Build IPA
+      # # --------------------------------------------------
+      # - name: Build SIGNED IPA
+      #   id: build_ipa
+      #   run: |
+      #     flutter build ipa \
+      #       --release \
+      #       --export-options-plist=ios/ExportOptions.plist
+
+      #     IPA_PATH=$(find build/ios/ipa -name "*.ipa" | head -n 1)
+      #     echo "IPA_PATH=$IPA_PATH" >> "$GITHUB_ENV"
+
+      # # --------------------------------------------------
+      # # 6. Setup App Store Connect API Key
+      # # --------------------------------------------------
+      # - name: Setup App Store Connect API Key
+      #   if: github.event_name == 'push'
+      #   run: |
+      #     mkdir -p ~/private_keys
+      #     KEY_FILE_PATH="$HOME/private_keys/AuthKey_${{ secrets.APP_STORE_CONNECT_KEY_ID }}.p8"
+      #     echo "${{ secrets.APP_STORE_CONNECT_API_KEY_CONTENT }}" | base64 --decode > $KEY_FILE_PATH
+      #     ls -l $KEY_FILE_PATH
+      #     head -n 2 $KEY_FILE_PATH
+
+      # # --------------------------------------------------
+      # # 7. Upload to TestFlight
+      # # --------------------------------------------------
+      # - name: Upload IPA to TestFlight
+      #   if: github.event_name == 'push' && success()
+      #   run: |
+      #     export API_KEY_ID="${{ secrets.APP_STORE_CONNECT_KEY_ID }}"
+      #     export API_ISSUER_ID="${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}"
+      #     KEY_FILE_PATH="$HOME/private_keys/AuthKey_${API_KEY_ID}.p8"
+
+      #     echo "Uploading $IPA_PATH to App Store Connect..."
+
+      #     if xcrun altool --upload-app \
+      #       --file "$IPA_PATH" \
+      #       --type "ios" \
+      #       --apiKey "$API_KEY_ID" \
+      #       --apiIssuer "$API_ISSUER_ID" ; then
+      #         echo "IPA_STATUS=UPLOADED" >> "$GITHUB_ENV"
+      #     else
+      #         echo "IPA_STATUS=FAILED" >> "$GITHUB_ENV"
+      #         exit 1
+      #     fi
+
+      #     rm $KEY_FILE_PATH
       # --------------------------------------------------
-      # 5. Build IPA
+      # 8. Android Keystore Setup
       # --------------------------------------------------
-      - name: Build SIGNED IPA
-        id: build_ipa
-        run: |
-          flutter build ipa \
-            --release \
-            --export-options-plist=ios/ExportOptions.plist
-
-          IPA_PATH=$(find build/ios/ipa -name "*.ipa" | head -n 1)
-          echo "IPA_PATH=$IPA_PATH" >> "$GITHUB_ENV"
-
-      # --------------------------------------------------
-      # 6. Setup App Store Connect API Key
-      # --------------------------------------------------
-      - name: Setup App Store Connect API Key
+      - name: Setup Android Keystore
         if: github.event_name == 'push'
         run: |
-          mkdir -p ~/private_keys
-          KEY_FILE_PATH="$HOME/private_keys/AuthKey_${{ secrets.APP_STORE_CONNECT_KEY_ID }}.p8"
-          echo "${{ secrets.APP_STORE_CONNECT_API_KEY_CONTENT }}" | base64 --decode > $KEY_FILE_PATH
-          ls -l $KEY_FILE_PATH
-          head -n 2 $KEY_FILE_PATH
+          mkdir -p ~/keystore
+          echo "${{ secrets.CICD_ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > ~/keystore/my-release-key.jks
+          echo "Keystore created at ~/keystore/my-release-key.jks"
 
       # --------------------------------------------------
-      # 7. Upload to TestFlight
+      # 9. Build APK & AAB
       # --------------------------------------------------
-      - name: Upload IPA to TestFlight
-        if: github.event_name == 'push' && success()
+      - name: Build APK & AAB
         run: |
-          export API_KEY_ID="${{ secrets.APP_STORE_CONNECT_KEY_ID }}"
-          export API_ISSUER_ID="${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}"
-          KEY_FILE_PATH="$HOME/private_keys/AuthKey_${API_KEY_ID}.p8"
+          flutter build apk --release --flavor dev
+          flutter build appbundle --release --flavor dev
 
-          echo "Uploading $IPA_PATH to App Store Connect..."
+          APK_PATH=$(find build/app/outputs/flutter-apk -name "*.apk" | head -n 1)
+          AAB_PATH=$(find build/app/outputs/bundle/release -name "*.aab" | head -n 1)
 
-          if xcrun altool --upload-app \
-            --file "$IPA_PATH" \
-            --type "ios" \
-            --apiKey "$API_KEY_ID" \
-            --apiIssuer "$API_ISSUER_ID" ; then
-              echo "IPA_STATUS=UPLOADED" >> "$GITHUB_ENV"
-          else
-              echo "IPA_STATUS=FAILED" >> "$GITHUB_ENV"
-              exit 1
-          fi
-
-          rm $KEY_FILE_PATH
+          echo "APK_PATH=$APK_PATH" >> "$GITHUB_ENV"
+          echo "AAB_PATH=$AAB_PATH" >> "$GITHUB_ENV"
+          echo "APK_STATUS=BUILT" >> "$GITHUB_ENV"
+          echo "AAB_STATUS=BUILT" >> "$GITHUB_ENV"
 
       # --------------------------------------------------
-      # 8. Artifact & Notification
+      # 10. Upload AAB to Google Play Internal Testing
+      # --------------------------------------------------
+      - name: Upload to Google Play Internal
+        uses: r0adkll/upload-google-play@v1
+        if: github.event_name == 'push' && success()
+        with:
+          serviceAccountJson: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.yourcompany.yourapp
+          releaseFiles: ${{ env.AAB_PATH }}
+          track: internal
+
+      # --------------------------------------------------
+      # 11. Artifact & Notification
       # --------------------------------------------------
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
