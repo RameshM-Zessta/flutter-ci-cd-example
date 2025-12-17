@@ -7,10 +7,13 @@ plugins {
 import java.util.Properties
 import java.io.FileInputStream
 
-val keystorePropertiesFile = rootProject.file("key.properties")
-val keystoreProperties = Properties()
+// --------------------------------------------------
+// Load keystore properties (for CI/CD signing)
+// --------------------------------------------------
+def keystorePropertiesFile = rootProject.file("key.properties")
+def keystoreProperties = new Properties()
 if (keystorePropertiesFile.exists()) {
-    keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
 
 android {
@@ -35,14 +38,15 @@ android {
         versionName = flutter.versionName
     }
 
+    // --------------------------------------------------
+    // Signing configuration
+    // --------------------------------------------------
     signingConfigs {
-        create("release") {
-            if (keystorePropertiesFile.exists()) {
-                keyAlias = keystoreProperties["keyAlias"] as String
-                keyPassword = keystoreProperties["keyPassword"] as String
-                storeFile = file(keystoreProperties["storeFile"] as String)
-                storePassword = keystoreProperties["storePassword"] as String
-            }
+        release {
+            keyAlias keystoreProperties['keyAlias']
+            keyPassword keystoreProperties['keyPassword']
+            storeFile keystoreProperties['storeFile'] ? file(keystoreProperties['storeFile']) : null
+            storePassword keystoreProperties['storePassword']
         }
     }
 
@@ -52,9 +56,15 @@ android {
             isMinifyEnabled = false
             isShrinkResources = false
         }
+        getByName("debug") {
+            // Optional: you can also set debug signing if needed
+        }
     }
 }
 
+// --------------------------------------------------
+// Flutter plugin configuration
+// --------------------------------------------------
 flutter {
     source = "../.."
 }
