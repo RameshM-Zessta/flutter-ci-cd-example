@@ -7,28 +7,17 @@ plugins {
 import java.util.Properties
 import java.io.FileInputStream
 
-// --------------------------------------------------
-// Load keystore properties (for CI/CD signing)
-// --------------------------------------------------
-def keystorePropertiesFile = rootProject.file("key.properties")
-def keystoreProperties = new Properties()
+val keystoreProperties = Properties()
+val keystorePropertiesFile = rootProject.file("key.properties")
+
 if (keystorePropertiesFile.exists()) {
-    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+    keystoreProperties.load(FileInputStream(keystorePropertiesFile))
 }
 
 android {
     namespace = "com.zessta.ci_cd_example"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
-
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
-    }
-
-    kotlinOptions {
-        jvmTarget = "11"
-    }
 
     defaultConfig {
         applicationId = "com.zessta.ci_cd_example"
@@ -38,15 +27,12 @@ android {
         versionName = flutter.versionName
     }
 
-    // --------------------------------------------------
-    // Signing configuration
-    // --------------------------------------------------
     signingConfigs {
-        release {
-            keyAlias keystoreProperties['keyAlias']
-            keyPassword keystoreProperties['keyPassword']
-            storeFile keystoreProperties['storeFile'] ? file(keystoreProperties['storeFile']) : null
-            storePassword keystoreProperties['storePassword']
+        create("release") {
+            keyAlias = keystoreProperties["keyAlias"] as String
+            keyPassword = keystoreProperties["keyPassword"] as String
+            storeFile = file(keystoreProperties["storeFile"] as String)
+            storePassword = keystoreProperties["storePassword"] as String
         }
     }
 
@@ -56,15 +42,9 @@ android {
             isMinifyEnabled = false
             isShrinkResources = false
         }
-        getByName("debug") {
-            // Optional: you can also set debug signing if needed
-        }
     }
 }
 
-// --------------------------------------------------
-// Flutter plugin configuration
-// --------------------------------------------------
 flutter {
     source = "../.."
 }

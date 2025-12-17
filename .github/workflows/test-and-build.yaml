@@ -161,7 +161,9 @@ jobs:
         if: github.event_name == 'push'
         run: |
           mkdir -p $GITHUB_WORKSPACE/android/app
+          # Decode keystore from Base64 secret
           echo "${{ secrets.CICD_ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > $GITHUB_WORKSPACE/android/app/my-release-key.jks
+          # Create key.properties for Gradle signing
           cat > $GITHUB_WORKSPACE/android/app/key.properties <<EOL
           storePassword=${{ secrets.CICD_ANDROID_KEYSTORE_PASSWORD }}
           keyPassword=${{ secrets.CICD_ANDROID_KEY_PASSWORD }}
